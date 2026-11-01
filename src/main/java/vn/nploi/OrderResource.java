@@ -26,4 +26,34 @@ public class OrderResource {
         }
         return "/orders Response";
     }
+
+    @GET
+    @Produces(MediaType.TEXT_PLAIN)
+    @Path("/v2")
+    public String ordersV2() {
+        try {
+            // 90% fast 20ms, 10% slow 1s
+            long delay = RANDOM.nextInt(100) < 90
+                    ? 20 
+                    : 1000;
+            Thread.sleep(delay);
+        } catch (Exception e) {
+            // Ignore
+        }
+        return "/orders/v2 Response";
+    }
+
+    @GET
+    @Produces(MediaType.TEXT_PLAIN)
+    @Path("/v2-steady")
+    public String ordersV2Steady() {
+        try {
+            // Always sleep 118ms
+            long delay = 118;
+            Thread.sleep(delay);
+        } catch (Exception e) {
+            // Ignore
+        }
+        return "/orders/v2-steady Response";
+    }
 }
