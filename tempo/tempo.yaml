@@ -1,0 +1,34 @@
+# Single-binary Tempo for local tracing.
+# Runs with host networking, so everything binds to 127.0.0.1 only:
+#   OTLP in  : 4317 (gRPC, what Quarkus uses) and 4318 (HTTP)
+#   Query API: 3200 (Grafana's Tempo data source)
+stream_over_http_enabled: true
+
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 3200
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 9095
+  log_level: warn
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 127.0.0.1:4317
+        http:
+          endpoint: 127.0.0.1:4318
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+compactor:
+  compaction:
+    # Local rig: keep a day of traces
+    block_retention: 24h

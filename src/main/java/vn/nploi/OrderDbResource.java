@@ -1,0 +1,106 @@
+package vn.nploi;
+
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.time.OffsetDateTime;
+import java.util.ArrayList;
+import java.util.List;
+
+import javax.sql.DataSource;
+
+import jakarta.inject.Inject;
+import jakarta.ws.rs.BadRequestException;
+import jakarta.ws.rs.DefaultValue;
+import jakarta.ws.rs.GET;
+import jakarta.ws.rs.NotFoundException;
+import jakarta.ws.rs.Path;
+import jakarta.ws.rs.PathParam;
+import jakarta.ws.rs.Produces;
+import jakarta.ws.rs.QueryParam;
+import jakarta.ws.rs.core.MediaType;
+
+/**
+ * Reads the orders table with plain JDBC. The table is large (tens of millions of rows),
+ * so every query goes through an index and returns a bounded number of rows.
+ * Methods return plain types, so Quarkus REST runs them on worker threads and blocking JDBC is fine.
+ */
+@Path("/orders/db")
+@Produces(MediaType.APPLICATION_JSON)
+public class OrderDbResource {
+
+    private static final String COLUMNS = "id, customer_id, created_at, status, total_cents";
+    private static final int MAX_LIMIT = 100;
+
+    @Inject
+    DataSource ds;
+
+    /** Primary-key lookup (orders_pkey). */
+    @GET
+    @Path("/{id}")
+    public Order byId(@PathParam("id") long id) throws SQLException {
+        try (Connection conn = ds.getConnection();
+                PreparedStatement ps = conn.prepareStatement("select " + COLUMNS + " from orders where id = ?")) {
+            ps.setLong(1, id);
+            try (ResultSet rs = ps.executeQuery()) {
+                if (!rs.next()) {
+                    throw new NotFoundException("order " + id + " not found");
+                }
+                return map(rs);
+            }
+        }
+    }
+
+    /** One page of orders plus the cursor for the next page (null on the last page). */
+    public record Page(List<Order> items, Long nextAfterId) {
+    }
+
+    /**
+     * Orders by id, paginated with a cursor (keyset): pass the previous page's nextAfterId as afterId.
+     * Uses "where id > ? order by id limit ?" instead of OFFSET, so every page costs the same;
+     * OFFSET would read and discard all earlier rows (deep pages take seconds on this table).
+     * Optional customerId filters via the orders_customer index.
+     */
+    @GET
+    public Page list(@QueryParam("afterId") @DefaultValue("0") long afterId,
+            @QueryParam("limit") @DefaultValue("20") int limit,
+            @QueryParam("customerId") Long customerId) throws SQLException {
+        if (limit < 1 || limit > MAX_LIMIT) {
+            throw new BadRequestException("limit must be between 1 and " + MAX_LIMIT);
+        }
+        String sql = "select " + COLUMNS + " from orders where id > ?"
+                + (customerId != null ? " and customer_id = ?" : "")
+                + " order by id limit ?";
+        try (Connection conn = ds.getConnection();
+                PreparedStatement ps = conn.prepareStatement(sql)) {
+            int i = 1;
+            ps.setLong(i++, afterId);
+            if (customerId != null) {
+                ps.setLong(i++, customerId);
+            }
+            // Fetch one extra row to know whether another page exists
+            ps.setInt(i, limit + 1);
+            List<Order> orders = new ArrayList<>(limit + 1);
+            try (ResultSet rs = ps.executeQuery()) {
+                while (rs.next()) {
+                    orders.add(map(rs));
+                }
+            }
+            if (orders.size() <= limit) {
+                return new Page(orders, null);
+            }
+            List<Order> items = orders.subList(0, limit);
+            return new Page(items, items.get(limit - 1).id());
+        }
+    }
+
+    private static Order map(ResultSet rs) throws SQLException {
+        return new Order(
+                rs.getLong("id"),
+                rs.getLong("customer_id"),
+                rs.getObject("created_at", OffsetDateTime.class),
+                rs.getString("status"),
+                rs.getLong("total_cents"));
+    }
+}

@@ -21,3 +21,17 @@ services:
       - ./grafana/dashboards:/var/lib/grafana/dashboards:ro
     depends_on:
       - prometheus
+      - tempo
+
+  tempo:
+    image: grafana/tempo:2.10.10
+    # Host networking like the rest: the app sends OTLP to localhost:4317 and
+    # Grafana queries localhost:3200. Ports and storage are set in tempo/tempo.yaml.
+    network_mode: host
+    command: ["-config.file=/etc/tempo/tempo.yaml"]
+    volumes:
+      - ./tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
+      - tempo-data:/var/tempo
+
+volumes:
+  tempo-data:
