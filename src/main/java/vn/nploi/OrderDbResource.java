@@ -95,6 +95,64 @@ public class OrderDbResource {
         }
     }
 
+    /** One page of orders with page-number metadata. */
+    public record OffsetPage(List<Order> items, int page, int size, long totalCount, long totalPages) {
+    }
+
+    /**
+     * Orders by id, paginated with OFFSET and a total count. Deliberately the expensive way, to compare
+     * with the cursor endpoint and to make Postgres the bottleneck under load:
+     * - "select count(*)" scans the whole table on every request (~1 s for 50M rows).
+     * - "offset (page-1)*size" reads and discards every earlier row, so deep pages take seconds.
+     * Both queries share one connection, so a slow request holds a pool connection for their total time.
+     * Optional customerId narrows both queries to the orders_customer index (fast).
+     */
+    @GET
+    @Path("/offset")
+    public OffsetPage listByOffset(@QueryParam("page") @DefaultValue("1") int page,
+            @QueryParam("size") @DefaultValue("20") int size,
+            @QueryParam("customerId") Long customerId) throws SQLException {
+        if (page < 1) {
+            throw new BadRequestException("page must be 1 or greater");
+        }
+        if (size < 1 || size > MAX_LIMIT) {
+            throw new BadRequestException("size must be between 1 and " + MAX_LIMIT);
+        }
+        String where = customerId != null ? " where customer_id = ?" : "";
+        long offset = (long) (page - 1) * size;
+        try (Connection conn = ds.getConnection()) {
+            long totalCount;
+            try (PreparedStatement ps = conn.prepareStatement("select count(*) from orders" + where)) {
+                if (customerId != null) {
+                    ps.setLong(1, customerId);
+                }
+                try (ResultSet rs = ps.executeQuery()) {
+                    rs.next();
+                    totalCount = rs.getLong(1);
+                }
+            }
+
+            List<Order> items = new ArrayList<>(size);
+            try (PreparedStatement ps = conn.prepareStatement(
+                    "select " + COLUMNS + " from orders" + where + " order by id limit ? offset ?")) {
+                int i = 1;
+                if (customerId != null) {
+                    ps.setLong(i++, customerId);
+                }
+                ps.setInt(i++, size);
+                ps.setLong(i, offset);
+                try (ResultSet rs = ps.executeQuery()) {
+                    while (rs.next()) {
+                        items.add(map(rs));
+                    }
+                }
+            }
+
+            long totalPages = (totalCount + size - 1) / size;
+            return new OffsetPage(items, page, size, totalCount, totalPages);
+        }
+    }
+
     private static Order map(ResultSet rs) throws SQLException {
         return new Order(
                 rs.getLong("id"),
