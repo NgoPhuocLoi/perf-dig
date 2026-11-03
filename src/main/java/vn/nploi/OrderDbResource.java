@@ -153,6 +153,32 @@ public class OrderDbResource {
         }
     }
 
+    /** One customer with the sum of all their orders. */
+    public record CustomerTotal(String name, long id, long totalCents) {
+    }
+
+    /**
+     * Order totals for every customer (50k rows). Deliberately heavy: joins all 50M orders to customers
+     * and aggregates them. On pglab it takes ~8.5 s with 2 parallel workers, and the aggregate spills
+     * ~560 MB of temp files to disk per run (work_mem 4MB). The query is kept exactly as written,
+     * with no ORDER BY, so row order is whatever the plan produces.
+     */
+    @GET
+    @Path("/customer-totals")
+    public List<CustomerTotal> customerTotals() throws SQLException {
+        try (Connection conn = ds.getConnection();
+                PreparedStatement ps = conn.prepareStatement(
+                        "SELECT c.name, c.id, sum(o.total_cents) FROM customers c"
+                                + " JOIN orders o ON c.id = o.customer_id GROUP BY c.id");
+                ResultSet rs = ps.executeQuery()) {
+            List<CustomerTotal> totals = new ArrayList<>(50_000);
+            while (rs.next()) {
+                totals.add(new CustomerTotal(rs.getString(1), rs.getLong(2), rs.getLong(3)));
+            }
+            return totals;
+        }
+    }
+
     private static Order map(ResultSet rs) throws SQLException {
         return new Order(
                 rs.getLong("id"),
