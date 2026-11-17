@@ -1,6 +1,5 @@
 package vn.nploi;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import jakarta.inject.Inject;
@@ -22,16 +21,15 @@ public class HibCustomerResource {
     @GET
     @Transactional
     public List<CustomerOrderCount> customers(@QueryParam("from") long from, @QueryParam("to") long to) {
-        var customers = em.createQuery(                                              // line 1
-                "select c from Customer c join fetch c.orders where c.id between :from and :to order by c.id",
-                Customer.class)
+        // Postgres counts and groups; only one row per customer comes back, no entities are loaded.
+        // Left join keeps customers with no orders (count 0).
+        return em.createQuery(
+                "select new vn.nploi.CustomerOrderCount(c.id, c.name, count(o.id))"
+                        + " from Customer c left join c.orders o"
+                        + " where c.id between :from and :to"
+                        + " group by c.id, c.name order by c.id",
+                CustomerOrderCount.class)
                 .setParameter("from", from).setParameter("to", to)
                 .getResultList();
-        var result = new ArrayList<CustomerOrderCount>();
-        for (var c : customers) {
-            result.add(new CustomerOrderCount(c.getId(), c.getName(),
-                    c.getOrders().size()));                                          // line 2
-        }
-        return result;
     }
 }
