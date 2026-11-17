@@ -1,7 +1,10 @@
 package vn.nploi;
 
+import java.util.List;
+
 import jakarta.persistence.Entity;
 import jakarta.persistence.Id;
+import jakarta.persistence.OneToMany;
 import jakarta.persistence.Table;
 
 @Entity
@@ -12,6 +15,9 @@ public class Customer {
     private Long id;
 
     private String name;
+
+    @OneToMany(mappedBy = "customer")
+    private List<CustomerOrder> orders;
 
     public Long getId() {
         return id;
@@ -27,5 +33,9 @@ public class Customer {
 
     public void setName(String name) {
         this.name = name;
+    }
+
+    public List<CustomerOrder> getOrders() {
+        return orders;
     }
 }
