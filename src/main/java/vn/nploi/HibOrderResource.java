@@ -37,4 +37,16 @@ public class HibOrderResource {
         }
         return result;
     }
+
+    @GET
+    @Path("/by-ids")
+    @Transactional
+    public List<OrderTotal> byIds(@QueryParam("ids") List<Long> ids) {
+        var result = new ArrayList<OrderTotal>();
+        for (var id : ids) {
+            var o = em.find(CustomerOrder.class, id);                       // line 1
+            result.add(new OrderTotal(o.getId(), o.getTotalCents()));
+        }
+        return result;
+    }
 }
