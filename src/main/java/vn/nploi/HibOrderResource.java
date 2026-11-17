@@ -22,9 +22,13 @@ public class HibOrderResource {
     @GET
     @Transactional
     public List<OrderCustomerName> orders(@QueryParam("from") long from, @QueryParam("to") long to) {
+        // Fetch graph: load the customer association with the orders (one SQL join), no JPQL join needed
+        var graph = em.createEntityGraph(CustomerOrder.class);
+        graph.addAttributeNodes("customer");
         var orders = em.createQuery(
-                "select o from CustomerOrder o join fetch o.customer where o.id between :from and :to order by o.id",
+                "select o from CustomerOrder o where o.id between :from and :to order by o.id",
                 CustomerOrder.class)
+                .setHint("jakarta.persistence.fetchgraph", graph)
                 .setParameter("from", from).setParameter("to", to)
                 .getResultList();
         var result = new ArrayList<OrderCustomerName>();
